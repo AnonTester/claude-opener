@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# ccopen - pick a Claude Code project (most recently used first) and start Claude Code in it.
+# Terminal counterpart of the claude-code-projects@AnonTester Cinnamon applet.
+
+set -u
+
+PROJECTS_DIR="$HOME/.claude/projects"
+NEW_BASE="${CCOPEN_NEW_DIR:-$HOME/Codeprojects}"
+CLAUDE_CMD="${CCOPEN_CLAUDE:-claude}"
+
+usage() {
+    cat <<EOF
+Usage: ccopen [options] [project]
+
+Without arguments, shows a list of the Claude Code projects (last used first).
+
+  project           project name (last folder name) or path; opens it directly
+  -l, --list        print the projects (last used first) and exit
+  -n, --new [NAME]  create NAME in $NEW_BASE (default: current date and time) and open it
+  -f, --fresh       start a new session instead of continuing the last one
+  -h, --help        show this help
+
+Environment: CCOPEN_CLAUDE (claude command), CCOPEN_NEW_DIR (base folder for new projects)
+EOF
+}
+
+# Claude Code names a project folder after the project path, with every
+# character that is not a letter or digit replaced by "-".
+encode_path() { printf '%s' "${1//[^a-zA-Z0-9]/-}"; }
+
+# Real working directory recorded in the newest session logs of a project folder.
+cwd_from_sessions() {
+    local dir=$1 encoded=$2 f cwd
+    while IFS= read -r f; do
+        while IFS= read -r cwd; do
+            cwd=${cwd#\"cwd\":\"}
+            cwd=${cwd%\"}
+            cwd=${cwd//\\\//\/}
+            if [[ $cwd == /* && $(encode_path "$cwd") == "$encoded" ]]; then
+                printf '%s' "$cwd"
+                return 0
+            fi
+        done < <(head -c 65536 "$f" | grep -o '"cwd":"[^"]*"')
+    done < <(ls -t "$dir"/*.jsonl 2>/dev/null | head -n 3)
+    return 1
+}
+
+# Fallback: walk the filesystem and match encoded folder names.
+walk_decode() {
+    local base=$1 rest=$2 d name enc child found
+    for d in "${base%/}"/*/; do
+        [[ -d $d ]] || continue
+        name=${d%/}; name=${name##*/}
+        enc=$(encode_path "$name")
+        child="${base%/}/$name"
+        if [[ $rest == "$enc" ]]; then
+            printf '%s' "$child"
+            return 0
+        elif [[ $rest == "$enc"-* ]]; then
+            found=$(walk_decode "$child" "${rest#"$enc"-}") && { printf '%s' "$found"; return 0; }
+        fi
+    done
+    return 1
+}
+
+decode_project_dir() {
+    local dir=$1 encoded=${1##*/}
+    [[ $encoded == -* ]] || return 1
+    cwd_from_sessions "$dir" "$encoded" || walk_decode / "${encoded#-}"
+}
+
+# Prints "mtime<TAB>name<TAB>path" for every existing project, newest first.
+collect_projects() {
+    local dir path latest
+    for dir in "$PROJECTS_DIR"/*/; do
+        dir=${dir%/}
+        [[ -d $dir ]] || continue
+        path=$(decode_project_dir "$dir") || continue
+        [[ -d $path ]] || continue
+        latest=$(find "$dir" -maxdepth 1 -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1)
+        [[ -n $latest ]] || latest=$(stat -c %Y "$dir")
+        printf '%s\t%s\t%s\n' "${latest%.*}" "${path##*/}" "$path"
+    done | sort -t $'\t' -k1,1nr
+}
+
+has_sessions() {
+    local files
+    files=$(compgen -G "$PROJECTS_DIR/$(encode_path "$1")/*.jsonl") && [[ -n $files ]]
+}
+
+age() {
+    local d=$(( $(date +%s) - $1 ))
+    if   (( d < 3600 ));   then printf '%dm ago' $(( d / 60 ))
+    elif (( d < 86400 ));  then printf '%dh ago' $(( d / 3600 ))
+    else                        printf '%dd ago' $(( d / 86400 ))
+    fi
+}
+
+# Same rules as the applet: accents dropped, whitespace -> "_", printable ASCII only.
+normalize_name() {
+    local s
+    s=$(printf '%s' "$1" | iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null || printf '%s' "$1")
+    s=$(printf '%s' "$s" | LC_ALL=C sed -E 's/^[[:space:]]+|[[:space:]]+$//g; s/[[:space:]]+/_/g; s#/##g; s/[^!-~]//g; s/^[._]+|[._]+$//g')
+    printf '%s' "$s"
+}
+
+open_project() {
+    local path=$1 fresh=$2
+    local args=()
+    cd "$path" || exit 1
+    if [[ $fresh -eq 0 ]] && has_sessions "$path" && [[ " $CLAUDE_CMD " != *" --continue "* ]]; then
+        args+=(--continue)
+    fi
+    unset CLAUDECODE AI_AGENT CLAUDE_PID CLAUDE_EFFORT CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_SESSION_ID \
+          CLAUDE_CODE_SESSION_ATTENDED CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH \
+          CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN
+    # shellcheck disable=SC2086
+    exec $CLAUDE_CMD "${args[@]}"
+}
+
+new_project() {
+    local name path
+    name=$(normalize_name "${1:-}")
+    [[ -n $name ]] || name=$(date +%Y-%m-%d_%H-%M)
+    path="$NEW_BASE/$name"
+    mkdir -p "$path" || exit 1
+    echo "$path"
+}
+
+choose_project() {
+    local rows=$1 items=() mtime name path i=0 choice
+    declare -ga PATHS=()
+    while IFS=$'\t' read -r mtime name path; do
+        PATHS+=("$path")
+        items+=("$i" "$(printf '%-28s %-10s %s' "$name" "$(age "$mtime")" "${path/#$HOME/\~}")")
+        i=$((i + 1))
+    done <<<"$rows"
+
+    # Draw on the alternate screen ourselves so the terminal is restored on exit,
+    # whichever way the menu program handles it.
+    tput smcup >/dev/tty 2>/dev/null
+    trap 'tput rmcup >/dev/tty 2>/dev/null' RETURN
+    if command -v dialog >/dev/null; then
+        choice=$(dialog --keep-tite --no-tags --title "Claude Code projects" --menu "Select a project" 0 0 0 "${items[@]}" 3>&1 1>&2 2>&3) || return 1
+    elif command -v whiptail >/dev/null; then
+        choice=$(whiptail --notags --title "Claude Code projects" --menu "Select a project" 0 0 0 "${items[@]}" 3>&1 1>&2 2>&3) || return 1
+    else
+        local labels=() n
+        for ((n = 1; n < ${#items[@]}; n += 2)); do labels+=("${items[n]}"); done
+        PS3="Project number: "
+        select _ in "${labels[@]}"; do
+            [[ -n ${REPLY:-} && $REPLY -ge 1 && $REPLY -le ${#labels[@]} ]] 2>/dev/null && { choice=$((REPLY - 1)); break; }
+        done
+    fi
+    printf '%s' "${PATHS[choice]}"
+}
+
+main() {
+    local fresh=0 list=0 new=0 newname="" target=""
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help) usage; exit 0 ;;
+            -l|--list) list=1 ;;
+            -f|--fresh) fresh=1 ;;
+            -n|--new)
+                new=1
+                if [[ ${2:-} && $2 != -* ]]; then newname=$2; shift; fi ;;
+            -*) echo "ccopen: unknown option $1" >&2; usage >&2; exit 2 ;;
+            *) target=$1 ;;
+        esac
+        shift
+    done
+
+    if (( new )); then
+        open_project "$(new_project "$newname")" "$fresh"
+    fi
+
+    local rows
+    rows=$(collect_projects)
+
+    if (( list )); then
+        local mtime name path
+        while IFS=$'\t' read -r mtime name path; do
+            [[ -n $path ]] && printf '%-28s %-10s %s\n' "$name" "$(age "$mtime")" "$path"
+        done <<<"$rows"
+        exit 0
+    fi
+
+    if [[ -n $target ]]; then
+        if [[ -d $target ]]; then
+            open_project "$(cd "$target" && pwd)" "$fresh"
+        fi
+        local mtime name path matches=()
+        while IFS=$'\t' read -r mtime name path; do
+            [[ $name == "$target" ]] && matches+=("$path")
+        done <<<"$rows"
+        case ${#matches[@]} in
+            0) echo "ccopen: no project '$target'" >&2; exit 1 ;;
+            1) open_project "${matches[0]}" "$fresh" ;;
+            *) printf 'ccopen: ambiguous project name, matches:\n' >&2; printf '  %s\n' "${matches[@]}" >&2; exit 1 ;;
+        esac
+    fi
+
+    [[ -n $rows ]] || { echo "ccopen: no Claude Code projects found" >&2; exit 1; }
+    local picked
+    picked=$(choose_project "$rows") || exit 0
+    [[ -n $picked ]] && open_project "$picked" "$fresh"
+}
+
+main "$@"

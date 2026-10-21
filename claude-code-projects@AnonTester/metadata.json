@@ -1,0 +1,7 @@
+{
+  "uuid": "claude-code-projects@AnonTester",
+  "name": "Claude Code Projects",
+  "description": "Open a terminal in a Claude Code project folder (from ~/.claude/projects) and start Claude Code there.",
+  "version": "1.1.0",
+  "max-instances": "1"
+}

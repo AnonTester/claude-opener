@@ -1,0 +1,14 @@
+.claude-code-projects-info {
+    font-style: italic;
+}
+
+.claude-code-projects-entry {
+    min-width: 24em;
+    margin-top: 0.5em;
+}
+
+.claude-code-projects-path {
+    color: rgba(150, 150, 150, 1);
+    font-size: 0.9em;
+    padding-left: 2em;
+}

@@ -1,0 +1,128 @@
+{
+  "layout": {
+    "type": "layout",
+    "pages": ["page-general", "page-projects", "page-folders"],
+    "page-general": {
+      "type": "page",
+      "title": "General",
+      "sections": ["section-launch", "section-menu", "section-newproject"]
+    },
+    "page-projects": {
+      "type": "page",
+      "title": "Projects",
+      "sections": ["section-projects"]
+    },
+    "page-folders": {
+      "type": "page",
+      "title": "Extra folders",
+      "sections": ["section-folders"]
+    },
+    "section-launch": {
+      "type": "section",
+      "title": "Launching",
+      "keys": ["claudecommand", "resumelast", "keepterminalopen", "terminalcommand", "editorcommand"]
+    },
+    "section-menu": {
+      "type": "section",
+      "title": "Menu",
+      "keys": ["sortmode", "showpaths"]
+    },
+    "section-newproject": {
+      "type": "section",
+      "title": "New project",
+      "keys": ["newprojectsdir"]
+    },
+    "section-projects": {
+      "type": "section",
+      "title": "Claude Code projects (~/.claude/projects)",
+      "keys": ["projects-info", "projects"]
+    },
+    "section-folders": {
+      "type": "section",
+      "title": "Additional folders",
+      "keys": ["extrafolders-info", "extrafolders"]
+    }
+  },
+  "claudecommand": {
+    "type": "entry",
+    "default": "claude",
+    "description": "Claude Code command",
+    "tooltip": "Command that is run inside the terminal, e.g. 'claude' or 'claude --continue'."
+  },
+  "resumelast": {
+    "type": "switch",
+    "default": true,
+    "description": "Resume the last session of the project",
+    "tooltip": "Adds --continue to the Claude Code command when the project already has a session. Projects without one (e.g. new projects) start normally. Ignored if the command already contains --continue or --resume."
+  },
+  "keepterminalopen": {
+    "type": "switch",
+    "default": true,
+    "description": "Keep terminal open after Claude Code exits"
+  },
+  "terminalcommand": {
+    "type": "entry",
+    "default": "",
+    "description": "Terminal command (empty = system default terminal)",
+    "tooltip": "Optional template. {dir} is replaced by the project folder and {cmd} by the command to run, e.g.: kitty --directory {dir} bash -ic {cmd}"
+  },
+  "editorcommand": {
+    "type": "entry",
+    "default": "",
+    "description": "Text editor command (empty = preferred text editor)",
+    "tooltip": "Used for editing CLAUDE.md and settings.json. The file path is appended. Empty uses the default application for plain text files."
+  },
+  "sortmode": {
+    "type": "combobox",
+    "default": "recent",
+    "description": "Sort projects by",
+    "options": {
+      "Most recently used": "recent",
+      "Name": "name"
+    }
+  },
+  "showpaths": {
+    "type": "switch",
+    "default": true,
+    "description": "Show the folder path next to each entry"
+  },
+  "newprojectsdir": {
+    "type": "filechooser",
+    "select-dir": true,
+    "default": "",
+    "description": "Folder for new projects (empty = ~/Codeprojects)",
+    "tooltip": "'New project...' at the bottom of the menu creates a sub-folder here."
+  },
+  "projects-info": {
+    "type": "label",
+    "description": "New projects found in ~/.claude/projects are added automatically when the menu is opened. Untick 'Show' to hide a project, and edit the name to rename it. Do not change the path of an entry."
+  },
+  "projects": {
+    "type": "list",
+    "description": "Projects",
+    "default": [],
+    "show-buttons": true,
+    "height": 320,
+    "columns": [
+      { "id": "enabled", "title": "Show", "type": "boolean", "default": true },
+      { "id": "name", "title": "Name", "type": "string", "default": "" },
+      { "id": "path", "title": "Folder", "type": "file", "select-dir": true, "default": "" }
+    ]
+  },
+  "extrafolders-info": {
+    "type": "label",
+    "description": "Folders added here appear in the menu as well and start Claude Code directly in that folder. An empty name uses the folder name."
+  },
+  "extrafolders": {
+    "type": "list",
+    "description": "Additional folders",
+    "default": [],
+    "show-buttons": true,
+    "height": 320,
+    "columns": [
+      { "id": "enabled", "title": "Show", "type": "boolean", "default": true },
+      { "id": "name", "title": "Name", "type": "string", "default": "" },
+      { "id": "path", "title": "Folder", "type": "file", "select-dir": true, "default": "" }
+    ]
+  }
+}
